@@ -27,7 +27,7 @@ class MicroAuth:
     self.__tenant = tenant
     self.__auth_url = 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/'.format(tenant=tenant)
     self.__graph_url = 'https://graph.microsoft.com/'
-    self.__scopes = 'offline_access presence.read presence.read.all'
+    self.__scopes = 'offline_access presence.read presence.read.all mail.read'
     self.__token_file = 'token.txt'
 
   def __create_access_token(self):
