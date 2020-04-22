@@ -1,57 +1,44 @@
 <Query Kind="Program">
-  <Reference>&lt;ProgramFilesX64&gt;\Microsoft SDKs\Azure\.NET SDK\v2.9\bin\plugins\Diagnostics\Newtonsoft.Json.dll</Reference>
-  <Reference>&lt;RuntimeDirectory&gt;\System.Net.Http.dll</Reference>
-  <Reference>D:\git\Development\DesktopApplications\PersonImportApp\PersonImportApp\bin\Debug\System.Net.Http.Formatting.dll</Reference>
+  <Reference Relative="components\Newtonsoft.Json.dll">D:\apps\skypemon\skypemon-teams\components\Newtonsoft.Json.dll</Reference>
+  <Reference Relative="components\System.Net.Http.dll">D:\apps\skypemon\skypemon-teams\components\System.Net.Http.dll</Reference>
+  <Reference Relative="components\System.Net.Http.Formatting.dll">D:\apps\skypemon\skypemon-teams\components\System.Net.Http.Formatting.dll</Reference>
   <Namespace>Newtonsoft.Json</Namespace>
-  <Namespace>System</Namespace>
   <Namespace>System.IO.Ports</Namespace>
   <Namespace>System.Net.Http</Namespace>
   <Namespace>System.Net.Http.Headers</Namespace>
   <Namespace>System.Threading.Tasks</Namespace>
 </Query>
 
-public class Config 
+public class Settings 
 {
-    public string basePath { get; set; }
     public string client_id { get; set; }
     public string tenant { get; set; }
-    public string comport { get; set; }
 }
-
-public static Config AppConfig = new Config() 
+public static class Config 
 {
-    basePath = Path.GetDirectoryName(Util.CurrentQueryPath),
-    comport = "COM15" 
-};
+    public static Settings Settings { get; set; }
+ 
+    public static string basePath = Path.GetDirectoryName(Util.CurrentQueryPath);
+    public static string comport = "COM15";
+    public static string scopes = "offline_access chat.read mail.read presence.read presence.read.all";
+}
 
 void Main()
 {
-    var settingsPath = Path.Combine(AppConfig.basePath, "settings.json");
-    if (File.Exists(settingsPath)) {
-        var config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(settingsPath));
-        AppConfig.client_id = config.client_id;
-        AppConfig.tenant = config.tenant;
+    if (File.Exists(Path.Combine(Config.basePath, "settings.json"))) 
+    {
+        Config.Settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText(Path.Combine(Config.basePath, "settings.json")));
 
         // Device.ScanPorts();
     
-        // graph object
-        MicroAuth auth = new MicroAuth(AppConfig.tenant, AppConfig.client_id);
-        string accessToken = auth.LoadAccessToken().access_token;
-        
-        // user and presence
-        //Console.WriteLine(auth.GetGraphUser(accessToken));
-        var presence = auth.GetGraphPresence(accessToken);
-        string activity = presence.activity != presence.availability ? presence.activity : "";
-        Console.WriteLine("user presence: {0} {1}", presence.availability, activity);
-        SetLEDStatus(presence);
-        
-        // user mailbox
-        Console.WriteLine("unread emails: {0}", auth.GetGraphMailbox(accessToken).unreadItemCount);
-        
-    //    // manager and presence
-    //    var manager = auth.GetGraphManager(accessToken);
-    //    Console.WriteLine(manager);
-    //    Console.WriteLine(auth.GetGraphPresence(accessToken, manager.id));
+        // create graph service
+        using (GraphService service = new GraphService(Config.Settings.tenant, Config.Settings.client_id, Config.scopes, Config.basePath)) 
+        {   
+            //service.PrintUser();    // user
+            service.PrintPresence(set_leds: false);    // user presence
+            service.PrintMailbox(); // user mailbox
+            //service.PrintManager(); // manager and presence
+        }
     }
     else 
     {
@@ -60,33 +47,7 @@ void Main()
 }
 
 // Define other methods and classes here
-public void SetLEDStatus(GraphPresence presence) 
-{
-    var py = new Device();
-    py.OpenPort(AppConfig.comport);
-    
-    switch (presence.availability)
-    {    
-        case "Available":
-            py.SetLEDs(new byte[] { 255, 0, 0 });
-            break;
-        case "Busy":
-            py.SetLEDs(new byte[] { 0, 0, 255 });
-            break;
-        case "Away":
-        case "BeRightBack":
-            py.SetLEDs(new byte[] { 0, 255, 0 });
-            break;
-            
-        default:
-            py.SetLEDs(new byte[] { 0, 0, 0 });
-            break;
-    }
-    
-    py.Dispose();
-}
-
-public class MicroAuth 
+public class GraphService : IDisposable
 {
     private readonly string authUrl;
     private readonly string clientId;
@@ -95,17 +56,24 @@ public class MicroAuth
     private readonly string tenant;
     private readonly string tokenFile;
     
-    public MicroAuth(string _tenant, string _clientId) 
+    private AuthAccessToken AccessToken;
+    
+    public GraphService(string _tenant, string _clientId, string _scopes, string _basePath) 
     {
         clientId = _clientId;
         tenant = _tenant;
-        authUrl = string.Format("https://login.microsoftonline.com/{0}/oauth2/v2.0/", tenant);
+        authUrl = string.Format("https://login.microsoftonline.com/{0}/oauth2/v2.0/", _tenant);
         graphUrl = "https://graph.microsoft.com/";
-        scopes = "offline_access presence.read presence.read.all mail.read";
-        tokenFile = Path.Combine(AppConfig.basePath, "token.txt");
+        scopes = _scopes;
+        tokenFile = Path.Combine(_basePath, "token.txt");
+        
+        // load access token
+        AccessToken = LoadAccessToken();
     }
     
-    public GraphMailbox GetGraphMailbox(string access_token, string id = "") 
+    public void Dispose() { }
+    
+    public GraphMailbox GetGraphMailbox(string access_token = "", string id = "") 
     {
         return graphRequest<GraphMailbox>(
             graphHost(access_token), 
@@ -113,7 +81,7 @@ public class MicroAuth
         );
     }
     
-    public GraphUser GetGraphManager(string access_token, string id = "") 
+    public GraphUser GetGraphManager(string access_token = "", string id = "") 
     {
         return graphRequest<GraphUser>(
             graphHost(access_token), 
@@ -121,7 +89,7 @@ public class MicroAuth
         );
     }
     
-    public GraphPresence GetGraphPresence(string access_token, string id = "") 
+    public GraphPresence GetGraphPresence(string access_token = "", string id = "") 
     {
         return graphRequest<GraphPresence>(
             graphHost(access_token, "beta"), 
@@ -129,7 +97,7 @@ public class MicroAuth
         );
     }
     
-    public GraphUser GetGraphUser(string access_token, string id = "") 
+    public GraphUser GetGraphUser(string access_token = "", string id = "") 
     {
         return graphRequest<GraphUser>(
             graphHost(access_token), 
@@ -137,10 +105,11 @@ public class MicroAuth
         );
     }
     
-    public AuthAccessToken LoadAccessToken()
+    public AuthAccessToken LoadAccessToken(bool refresh = false)
     {
         // check for a stored access token
-        var accessToken = readAccessToken();
+        AuthAccessToken accessToken = readAccessToken();
+        double expires = 0;
 
           // if no token
         if (accessToken == null) 
@@ -150,22 +119,22 @@ public class MicroAuth
         }
         else
         {
-            var expires = (DateTime.Now - File.GetLastWriteTime(tokenFile)).TotalSeconds;
+            expires = (DateTime.Now - File.GetLastWriteTime(tokenFile)).TotalSeconds;
 
             // if access token expired
-            if (expires >= accessToken.expires_in)
+            if (refresh || expires >= accessToken.expires_in)
             {
                 // refresh access token
                 accessToken = refreshAccessToken(accessToken.refresh_token);
-            }   
-            else
-            {
-                // display time until access token expires
-                int min = (int)((accessToken.expires_in - expires) / 60);
-                int sec = (int)((accessToken.expires_in - expires) % 60);
-                Console.WriteLine("token refresh: {0} min {1} sec", min, sec);
+                expires = 0;
             }
         }
+        
+        // display time until access token expires
+        string date = DateTime.Now.AddSeconds(accessToken.expires_in - expires).ToString();
+        int min = (int)((accessToken.expires_in - expires) / 60);
+        int sec = (int)((accessToken.expires_in - expires) % 60);
+        Console.WriteLine($"token refresh: {min} min {sec} sec ({date})");
         
         return accessToken;
     }
@@ -176,9 +145,9 @@ public class MicroAuth
         
         // request user permissions
         AuthDeviceCode deviceCode = requestPermissions();
-        Console.WriteLine("user code: {0}", deviceCode.user_code);
+        Console.WriteLine($"user code: {deviceCode.user_code}");
         
-        var client = new HttpClient() 
+        HttpClient client = new HttpClient() 
         {
             Timeout = TimeSpan.FromHours(1)
         };
@@ -196,7 +165,6 @@ public class MicroAuth
         while (accessToken == null) 
         {
             Console.WriteLine("checking permissions");
-            Thread.Sleep(deviceCode.interval * 1000);
             
             // wait for access token
             using (var response = client.PostAsync(url, new FormUrlEncodedContent(data)).Result)
@@ -208,6 +176,8 @@ public class MicroAuth
                     accessToken = JsonConvert.DeserializeObject<AuthAccessToken>(responseBody);   
                 }
             }
+            
+            Thread.Sleep(deviceCode.interval * 1000);
         }
         
         // save
@@ -227,7 +197,7 @@ public class MicroAuth
     private HttpClient graphHost(string access_token = "", string version = "v1.0")
     {
         if (string.IsNullOrEmpty(access_token))
-            access_token = LoadAccessToken().access_token;
+            access_token = AccessToken.access_token;
         
         var client = new HttpClient()
         {
@@ -280,7 +250,7 @@ public class MicroAuth
         };
         
         // request
-        var client = new HttpClient() 
+        HttpClient client = new HttpClient() 
         {
             Timeout = TimeSpan.FromHours(1)
         };
@@ -309,7 +279,7 @@ public class MicroAuth
             { "scope", scopes }
         };
         
-        var client = new HttpClient() 
+        HttpClient client = new HttpClient() 
         {
             Timeout = TimeSpan.FromHours(1)
         };
@@ -328,11 +298,72 @@ public class MicroAuth
     
     private void saveAccessToken(AuthAccessToken access_token) 
     {
-        using (var stream = new StreamWriter(tokenFile)) 
+        using (StreamWriter stream = new StreamWriter(tokenFile)) 
         {
             stream.WriteLine(access_token.expires_in);
             stream.WriteLine(access_token.access_token);
             stream.WriteLine(access_token.refresh_token);
+        }
+    }
+}
+
+//
+// Extensions
+//
+public static class GraphServiceExtensions 
+{
+    public static void PrintMailbox(this GraphService auth) 
+    {
+        Console.WriteLine($"unread emails: {auth.GetGraphMailbox().unreadItemCount}");
+    }
+
+    public static void PrintManager(this GraphService auth) 
+    {
+        var manager = auth.GetGraphManager();
+        Console.WriteLine($"manager: {manager.mail}; {manager.id}");
+        auth.PrintPresence(manager.id, "manager");
+    }
+
+    public static void PrintPresence(this GraphService auth, string id = "", string label = "user", bool set_leds = false) 
+    {
+        var presence = auth.GetGraphPresence();
+        string activity = presence.activity != presence.availability ? "; " + presence.activity : "";
+        Console.WriteLine($"{label} presence: {presence.availability} {activity}");
+        if (set_leds)
+            SetLEDStatus(presence.availability);
+    }
+    
+    public static void PrintUser(this GraphService auth) 
+    {
+        var user = auth.GetGraphUser();
+        Console.WriteLine($"user: {user.mail}; {user.id}");
+    }
+    
+    private static void SetLEDStatus(string availability) 
+    {
+        var py = new Device();
+        
+        if (py.OpenPort(Config.comport)) 
+        {
+            switch (availability)
+            {    
+                case "Available":
+                    py.SetLEDs(new byte[] { 255, 0, 0 });
+                    break;
+                case "Busy":
+                    py.SetLEDs(new byte[] { 0, 0, 255 });
+                    break;
+                case "Away":
+                case "BeRightBack":
+                    py.SetLEDs(new byte[] { 0, 255, 0 });
+                    break;
+                    
+                default:
+                    py.SetLEDs(new byte[] { 0, 0, 0 });
+                    break;
+            }
+            
+            py.Dispose();
         }
     }
 }

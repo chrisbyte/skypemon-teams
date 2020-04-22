@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import requests
@@ -5,12 +6,13 @@ import time
 import webbrowser
 
 #
-# References
+# Resources
 #
-# https://portal.azure.com/#home
 # https://developer.microsoft.com/en-us/graph/graph-explorer
-# https://docs.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0
 # https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-device-code
+# https://docs.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0
+# https://docs.microsoft.com/en-us/graph/api/resources/presence?view=graph-rest-beta
+# https://portal.azure.com/#home
 
 class MicroAuth:
 
@@ -27,7 +29,7 @@ class MicroAuth:
     self.__tenant = tenant
     self.__auth_url = 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/'.format(tenant=tenant)
     self.__graph_url = 'https://graph.microsoft.com/'
-    self.__scopes = 'offline_access presence.read presence.read.all mail.read'
+    self.__scopes = 'offline_access chat.read presence.read presence.read.all mail.read'
     self.__token_file = 'token.txt'
 
   def __create_access_token(self):
@@ -163,6 +165,7 @@ class MicroAuth:
 
     # check for a stored access token
     access_token = self.__read_access_token()
+    expires = 0
 
     # if no token
     if access_token is None or 'access_token' not in access_token:
@@ -179,13 +182,15 @@ class MicroAuth:
 
         # refresh access token
         access_token = self.__refresh_access_token(access_token['refresh_token'])
-        
-      else:
-
-        # display time until access token expires
-        min = int((access_token['expires_in'] - expires) / 60)
-        sec = int((access_token['expires_in'] - expires) % 60)
-        print('expires in: {min} min {sec} sec'.format(min=min, sec=sec))
+        expires = 0
+      
+    # display time until access token expires
+    expires_in = int(access_token['expires_in'])
+    date = datetime.datetime.now() + datetime.timedelta(seconds=(expires_in - expires))            
+    date = date.strftime("%d/%m/%Y %H:%M:%S")
+    min = int((expires_in - expires) / 60)
+    sec = int((expires_in - expires) % 60)
+    print('token refresh: {min} min {sec} sec ({date})'.format(date=date, min=min, sec=sec))
 
     return access_token
 
